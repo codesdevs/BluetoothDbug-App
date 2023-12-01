@@ -1,6 +1,9 @@
 <template>
 	<view class="container">
 		<view class="flow">
+			<view class="device-name" @click="showUpdateDeviceNamePopupHandler">
+				{{ device.label }}
+			</view>
 			<view class="circle">
 				<view class="inner-circle"
 					:style="{ minWidth: systemHeight / 4 - 50 + 'px', minHeight: systemHeight / 4 - 50 + 'px' }">
@@ -106,7 +109,8 @@
 				<!-- Connect -->
 				<view class="box" @click="connectHandler">
 					<view class="top">
-						<view class="status-circle">
+						<view class="status-circle"
+							:style="{ backgroundColor: isConnected ? 'var(--themeColor)' : '#d41e1e' }">
 							<view class="status-circle-inner-circle">
 								<view class="status-circle-inner-circle-inner">
 									<image src="../../static/icon/bluetooth.png" style="width: 40rpx;height: 40rpx;">
@@ -143,7 +147,7 @@
 								<van-image width="30" height="30" src="/static/icon/bluetooth_icon.png" />
 							</view>
 							<view class="content">
-								<view class="name">{{ item.name }}</view>
+								<view class="name">{{ item.label }}</view>
 								<view class="id">{{ item.deviceId }}</view>
 							</view>
 							<view class="status">
@@ -171,17 +175,22 @@
 			<!-- close -->
 			<view class="close" @click="closeConnectPopup">
 				<image class="close_popup" src="/static/icon/close_popup.png" mode="widthFix" lazy-load="false" binderror=""
-					bindload="">
-
-				</image>
+					bindload="" />
 			</view>
+		</uni-popup>
+		<uni-popup ref="updateDeviceNamePopup" type="dialog">
+			<uni-popup-dialog :before-close="true" mode="base" title="Input DeviceName" @close="closeUpdateDeviceNamePopup"
+				@confirm="updateDeviceNamePopupConfirm">
+				<input class="uni-input" type="text" :value="device.label" @input="updateDeviceNameInput"
+					placeholder="Input DeviceName" />
+			</uni-popup-dialog>
 		</uni-popup>
 	</view>
 </template>
 <script>
 import { bluetoothEnumValue, totalFlowUnitValue, instantFlowUnitValue } from '@/enum'
 import { ab2hex, hexStringToArrayBuffer, decToHex, hexStrToCRC16Modbus, floatHexToDec, hexToDec, formatDecimal } from '@/utils/tools'
-var index = 0;
+import { mapState } from "vuex";
 export default {
 	data() {
 		return {
@@ -192,11 +201,12 @@ export default {
 			flowRateValue: '0.00',
 			tempAddress: 0,
 			address: 1,
-			connectStatus: false,
 			isOpenBluetooth: false,
 			deviceList: [],
 			deviceLists: [],
 			device: {
+				label: '-',
+				name: '',
 				deviceId: '',
 				serviceId: '',
 				characteristicId: '',
@@ -239,6 +249,11 @@ export default {
 			instantaneousFlowDecimal: 2,
 		}
 	},
+	computed: {
+		...mapState({
+			historyDeviceList: (state) => state.device.historyDeviceList,
+		}),
+	},
 	onLoad() {
 		this.isCheckOpenBluetooth()
 		//获取设备宽高
@@ -257,6 +272,9 @@ export default {
 	},
 	watch: {
 		signalStrengthValue(val) {
+			if (val == 0) {
+				this.signalStrengthIcon = '/static/icon/signalStrength-0.png'
+			}
 			val = val.toString().split('-')[1]
 			//按照信号强度划分3个等级
 			if (val >= 30 && val <= 50) {
@@ -278,11 +296,17 @@ export default {
 				clearInterval(this.timer)
 			}
 		},
-		isConnected(val) {
+		async isConnected(val) {
 			console.log("isConnected", val)
 			if (val) {
 				console.log("连接成功")
 				this.isPolling = true
+				//添加到历史列表中
+				console.log("向历史列表中添加数据")
+				console.log("====当前历史连接设备数据index====")
+				console.log(this.$store.state.device.historyDeviceList)
+				console.log(this.device)
+				this.$store.commit('addHistoryDeviceList', this.device)
 			} else {
 				console.log("断开连接")
 				this.isPolling = false
@@ -322,7 +346,7 @@ export default {
 
 		},
 		addressHandler() {
-			if (this.device.deviceId == '') {
+			if (this.device.deviceId == '' && !this.isConnected) {
 				uni.showToast({
 					icon: 'none',
 					title: 'Please connect the device first',
@@ -337,7 +361,7 @@ export default {
 			this.$refs.addressPopup.close()
 		},
 		addressPopupConfirm() {
-			if (this.tempAddress == 0) {
+			if (this.tempAddress == 0 && !this.isConnected) {
 				//提示用户请先输入地址
 				uni.showToast({
 					title: 'Please enter address',
@@ -360,9 +384,15 @@ export default {
 			this.$refs.connectPopup.close()
 			this.deviceList = []
 			this.deviceLists = []
+			uni.stopBluetoothDevicesDiscovery({
+				success(res) {
+					console.log("====关闭蓝牙搜索成功====")
+					console.log(res)
+				}
+			})
 		},
 		addressInput(e) {
-			if (this.device.deviceId == '') {
+			if (this.device.deviceId == '' && !this.isConnected) {
 				uni.showToast({
 					icon: 'none',
 					title: 'Please connect the device first',
@@ -373,6 +403,58 @@ export default {
 			}
 			this.tempAddress = e.detail.value
 		},
+		showUpdateDeviceNamePopupHandler() {
+			if (this.device.deviceId == '' && !this.isConnected) {
+				uni.showToast({
+					icon: 'none',
+					title: 'Please connect the device first',
+					mask: true,
+					duration: 2000
+				});
+				return
+			}
+			this.$refs.updateDeviceNamePopup.open('center')
+
+		},
+		closeUpdateDeviceNamePopup() {
+			this.$refs.updateDeviceNamePopup.close()
+		},
+		updateDeviceNamePopupConfirm() {
+			if (this.device.deviceId == '' && !this.isConnected) {
+				uni.showToast({
+					icon: 'none',
+					title: 'Please connect the device first',
+					mask: true,
+					duration: 2000
+				});
+				return
+			}
+			if (this.tempLabel == '') {
+				uni.showToast({
+					icon: 'none',
+					title: 'Please enter deviceName',
+					mask: true,
+					duration: 2000
+				});
+				return
+			}
+			this.device.label = this.tempLabel
+			this.$refs.updateDeviceNamePopup.close()
+			this.$store.commit('updateHistoryDeviceName', this.device)
+		},
+		updateDeviceNameInput(e) {
+			if (this.device.deviceId == '' && !this.isConnected) {
+				uni.showToast({
+					icon: 'none',
+					title: 'Please connect the device first',
+					mask: true,
+					duration: 2000
+				});
+				return
+			}
+			this.tempLabel = e.detail.value
+		},
+
 
 		initBluetooth() {
 			var that = this;
@@ -452,6 +534,18 @@ export default {
 						isExist = true;
 					}
 				});
+				//根据历史列表，判断是否已经连接过
+				console.log("=======获取历史连接列表数据=======")
+				console.log(that.historyDeviceList)
+				//判断devices.devices[0].deviceId是否在历史列表中
+				var index = that.historyDeviceList.findIndex(item => item.deviceId === devices.devices[0].deviceId);
+				console.log("====获取到的index====", index)
+				console.log("====根据index获取到的数据====", that.historyDeviceList[index])
+				if (index !== -1) {
+					devices.devices[0].label = that.historyDeviceList[index].label
+				} else {
+					devices.devices[0].label = devices.devices[0].name
+				}
 				if (!isExist) {
 					var isFilter = false;
 					that.filterDeviceOptions.forEach(item => {
@@ -493,6 +587,11 @@ export default {
 		},
 
 		connect(item) {
+			this.totalFlowValue = '0.00'
+			this.flowRateValue = '0.00'
+			this.tempTotalFlow = 0
+			this.tempInstantaneousFlow = 0
+			this.signalStrengthValue = 0
 			this.isConnected = false
 			this.close();
 			console.log("item", item)
@@ -522,24 +621,33 @@ export default {
 					}, 1000)
 					console.log(res)
 					item.connectState = 'connected'
-					that.$refs.connectPopup.close()
+					that.closeConnectPopup()
 					that.device.deviceId = item.deviceId
 					that.signalStrengthValue = item.RSSI
+					that.device.name = item.name
+					that.device.label = item.label
 					that.getBLEDeviceServices()
 				},
 				fail: function (res) {
 					console.log(res)
 					item.connectState = 'connectFail'
 					uni.showToast({
-						title: 'connectFail',
-						icon: 'none',
-						duration: 2000
+						title: bluetoothEnumValue(res.errCode),
+						icon: 'none'
 					})
+					this.device = {
+						deviceId: '',
+						name: '',
+						label: '-',
+						serviceId: '',
+						characteristicId: '',
+						signalStrength: ''
+					}
 				}
 			})
 		},
 		startPollingHandler() {
-			if (this.device.deviceId == '') {
+			if (this.device.deviceId == '' && !this.isConnected) {
 				uni.showToast({
 					icon: 'none',
 					title: 'Please connect the device first',
@@ -558,7 +666,7 @@ export default {
 			this.isPolling = true
 		},
 		stopPollingHandler() {
-			if (this.device.deviceId == '') {
+			if (this.device.deviceId == '' && !this.isConnected) {
 				uni.showToast({
 					icon: 'none',
 					title: 'Please connect the device first',
@@ -665,11 +773,11 @@ export default {
 					return
 				}
 				console.log("=================设备回复日志方法开始=================")
-				console.log("=================原始报文数据==>："+hex+"=================")
-				console.log("=================原始报文数据长度==>："+hex.length+"=================")
+				console.log("=================原始报文数据==>：" + hex + "=================")
+				console.log("=================原始报文数据长度==>：" + hex.length + "=================")
 				let value = hex.substring(6, hex.length - 8)
-				console.log("=================去掉前6位和后8位的数据==>："+value+"=================")
-				console.log("=================去掉前6位和后8位的数据长度==>："+value.length+"=================")
+				console.log("=================去掉前6位和后8位的数据==>：" + value + "=================")
+				console.log("=================去掉前6位和后8位的数据长度==>：" + value.length + "=================")
 				switch (value.length) {
 					case 84:
 						console.log("=================设备回复流量数据报文开始=================")
@@ -755,6 +863,7 @@ export default {
 							item.connectState = ''
 						}
 					});
+					this.stopPollingHandler()
 				},
 				fail: (res) => {
 					console.log('closeBLEConnection fail', res)
@@ -767,6 +876,9 @@ export default {
 		},
 		//写入数据
 		writeBLECharacteristicValue(hexStr) {
+			if (!this.isConnected) {
+				return
+			}
 			console.log("this.device", this.device)
 			var that = this;
 			console.log("decToHex(this.address) + hexStr + hexStrToCRC16Modbus(decToHex(this.address) + hexStr)", decToHex(this.address) + hexStr + hexStrToCRC16Modbus(decToHex(this.address) + hexStr))
@@ -840,7 +952,12 @@ page {
 	justify-content: center;
 	width: 100%;
 	height: 100%;
-	margin: 40rpx 0;
+
+	.device-name {
+		font-size: 40rpx;
+		font-weight: 800;
+		margin-bottom: 40rpx;
+	}
 
 	.title {
 		font-size: 25rpx;

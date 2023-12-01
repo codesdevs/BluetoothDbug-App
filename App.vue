@@ -1,6 +1,8 @@
 <script>
 export default {
 	onLaunch: function () {
+		//清除缓存
+		// uni.clearStorageSync();
 		const isCheckOpenBluetooth = () => {
 			switch (uni.getSystemInfoSync().platform) {
 				case 'android':
@@ -24,7 +26,11 @@ export default {
 	},
 	onHide: function () {
 		console.log('App Hide')
-	}
+	},
+	created: function () {
+		console.log("App created");
+		this.$store.commit("initHistoryDeviceList");
+	},
 }
 </script>
 
